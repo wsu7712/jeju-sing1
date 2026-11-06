@@ -1,0 +1,42 @@
+# 이 파일은 저장소의 .github/workflows/collect.yml 로 넣습니다.
+# (Actions 탭 > set up a workflow yourself 에 붙여 넣으면 그 자리에 만들어집니다)
+name: 1인 세대 월간 보고서
+
+on:
+  schedule:
+    - cron: "0 18 * * *"   # 매일 한국 시간 새벽 3시 확인. 새 달 자료가 나왔을 때만 보고서를 만듦
+  workflow_dispatch:         # Actions 탭에서 Run workflow 로 바로 실행
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 자료 받기
+        env:
+          PUBLIC_API_KEY: ${{ secrets.PUBLIC_API_KEY }}
+        run: python scripts/collect.py
+      - name: 보고서 만들기 (외부 AI 없이 계산 + 문장 틀)
+        id: rep
+        run: python scripts/report.py
+      - name: 바뀌었으면 저장
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add data reports
+          git diff --cached --quiet || git commit -m "1인 세대 자료와 월간 보고서 갱신"
+          git push
+      - name: 새 달 보고서를 Issue로 올리기
+        if: steps.rep.outputs.new_report != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create "월간보고서" --color 3d7a52 --force
+          gh issue create --title "${{ steps.rep.outputs.report_title }}" --body-file "${{ steps.rep.outputs.new_report }}" --label "월간보고서"
